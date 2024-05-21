@@ -1,30 +1,56 @@
 use glam::{Affine3A, Vec3};
+use image::Rgb;
 
-
-/*pub trait DistanceFn {
-	fn eval(&mut self, point: Vec3);
+pub trait DistanceFn {
+	fn eval(&self, point: Vec3) -> f32;
 }
 
-impl<Func: FnMut(Vec3) -> f32> DistanceFn for Func {
-	fn eval(&mut self, point: Vec3) -> f32 {
+impl<Func: Fn(Vec3) -> f32> DistanceFn for Func {
+	fn eval(&self, point: Vec3) -> f32 {
 		self(point)
 	}
 }
 
-pub fn transform(point: Vec3, transform: Affine3A) -> impl DistanceFn {
-	todo!()
+pub trait DistanceFnCombinators: Sized + DistanceFn {
+	fn transform(self, transform: Affine3A) -> impl DistanceFn {
+		let transform = transform.inverse();
+		move |point: Vec3| self.eval(transform.transform_point3(point))
+	}
+	
+	fn translate(self, translation: Vec3) -> impl DistanceFn {
+		self.transform(Affine3A::from_translation(translation))
+	}
+	
+	fn scale(self, scale: f32) -> impl DistanceFn {
+		move |point: Vec3| self.eval(point / scale) * scale
+	}
+	
+	fn union(self, mut other: impl DistanceFn) -> impl DistanceFn {
+		move |point: Vec3| self.eval(point).min(other.eval(point))
+	}
+	
+	fn intersection(self, mut other: impl DistanceFn) -> impl DistanceFn {
+		move |point: Vec3| self.eval(point).max(other.eval(point))
+	}
+	
+	fn difference(self, mut other: impl DistanceFn) -> impl DistanceFn {
+		move |point: Vec3| (-self.eval(point)).max(other.eval(point))
+	}
 }
 
-pub fn scale() -> impl DistanceFn {
-	todo!()
-} */
-
-pub fn sd_sphere(point: Vec3, radius: f32) -> f32 {
-	point.length() - radius
+impl<T: DistanceFn> DistanceFnCombinators for T {
 }
 
-pub fn sd_box(point: Vec3, b: Vec3, r: f32) -> f32 {
-	let q = point.abs() - b;
-	q.max(Vec3::splat(0.0)).length() + q.x.clamp(0.0, q.y.max(q.z))
-	// return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+pub fn sd_sphere(radius: f32) -> impl DistanceFn {
+	move |point: Vec3| point.length() - radius
+}
+
+pub fn sd_box(size: Vec3) -> impl DistanceFn {
+	move |point: Vec3| {
+		let v = point.abs() - size;
+		// q.max(Vec3::splat(0.0)).length() + q.x.clamp(0.0, q.y.max(q.z))
+		v.max(Vec3::splat(0.0)).length() +
+		v.x.max(v.y.max(v.z)).min(0.0)
+		// return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+	}
 }

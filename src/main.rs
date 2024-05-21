@@ -6,31 +6,61 @@ use glam::{vec2, vec3, Vec2, Vec3, Vec3Swizzles};
 use image::{Rgb, RgbImage};
 use rand::{thread_rng, Rng};
 use anyhow::Result as AResult;
+use sdf::{DistanceFn, DistanceFnCombinators};
 
 fn main() -> AResult<()> {
     let mut img = RgbImage::new(640, 360);
     let (width, height) = img.dimensions();
     
-    let mut sdf = |point: Vec3| sdf::sd_sphere(point, 0.25);
-    let lightDirection = Vec3::ONE.normalize();
+    #[cfg(none)]
+    let sdf = {
+        let bigSphere = sdf::sd_sphere(0.25);
+        let smallSphere = sdf::sd_sphere(0.1);
+        
+        let sdf = bigSphere.union(smallSphere.clone().translate(vec3(0.25, 0.0, 0.0)));
+        let sdf = sdf.union(smallSphere.clone().translate(vec3(-0.25, 0.0, 0.0)));
+        let sdf = sdf.union(smallSphere.clone().translate(vec3(0.0, 0.25, 0.0)));
+        let sdf = sdf.union(smallSphere.clone().translate(vec3(0.0, -0.25, 0.0)));
+        let sdf = sdf.union(smallSphere.clone().translate(vec3(0.0, 0.0, 0.25)));
+        let sdf = sdf.union(smallSphere.clone().translate(vec3(0.0, 0.0, -0.25)));
+        sdf
+    };
+    let x: &dyn DistanceFn;
+    let models = {
+        let bx = sdf::sd_box(vec3(2.0, 0.5, 0.5)).translate(Vec3::X);
+        let by = sdf::sd_box(vec3(0.5, 2.0, 0.5)).translate(Vec3::Y);
+        let bz = sdf::sd_box(vec3(0.5, 0.5, 2.0)).translate(Vec3::Z);
+        
+        [
+            Model::new(Rgb([255, 0, 0]), bx),
+            Model::new(Rgb([0, 255, 0]), by),
+            Model::new(Rgb([0, 0, 255]), bz),
+        ]
+    };
+    let lightDirection = Vec3::NEG_ONE.normalize();
     
-    let mut camera = Camera::from_points(
-        vec3(1.0, 0.0, 0.0),
+    let camera = Camera::from_points(
+        vec3(5.0, 2.5, 5.0),
         Vec3::ZERO,
         width as f32 / height as f32
     );
-    dbg!(camera.up);
     for (x, y, pixel) in img.enumerate_pixels_mut() {
         let dx = (x as f32 / (width - 1) as f32) - 0.5;
         let dy = (y as f32 / (height - 1) as f32) - 0.5;
         let ray = camera.get_ray(vec2(dx, dy));
-        if let Some(RayHit{ position }) = ray.hit(&mut sdf) {
-            let shadowRay = Ray::from_points(position, position - lightDirection);
-            if let Some(_) = shadowRay.hit(&mut sdf) {
-                *pixel = Rgb([128, 0, 0]);
-            } else {
-                *pixel = Rgb([255, 0, 0]);
+        
+        let mut nearest = None;
+        for model in &models {
+            if let Some(hit) = ray.hit(model.sdf.as_ref()) {
+                match nearest {
+                    Some((RayHit { distance, .. }, _)) if distance > hit.distance => {}
+                    _ => nearest = Some((hit, model.color)),
+                }
             }
+        }
+        
+        if let Some((_, color)) = nearest {
+            *pixel = color;       
         } else {
             let skyboxColor = (((ray.direction + 1.0) / 2.0) * 255.0).as_uvec3();
             *pixel = Rgb([skyboxColor.x as _, skyboxColor.y as _, skyboxColor.z as _]);
@@ -54,7 +84,7 @@ impl Camera {
     pub fn from_points(origin: Vec3, target: Vec3, aspectRatio: f32) -> Self {
         let forward = (target - origin).normalize();
         let right = Vec3::Y.cross(forward);
-        let up = forward.cross(right);
+        let up = right.cross(forward);
         Self {
             origin,
             forward,
@@ -75,6 +105,7 @@ impl Camera {
 
 #[derive(Clone, Copy, Debug)]
 struct RayHit {
+    distance: f32,
     position: Vec3,
 }
 
@@ -96,24 +127,42 @@ impl Ray {
         self.origin += self.direction * distance    
     }
     
-    pub fn hit(&self, sdf: &mut impl FnMut(Vec3) -> f32) -> Option<RayHit> {
+    pub fn hit(&self, sdf: &dyn DistanceFn) -> Option<RayHit> {
         let mut ray = *self;
         let mut lastDistance = f32::INFINITY;
+        let mut totalDistance = 0.0;
         for iteration in 0 .. 100 {
-            let distance = sdf(ray.origin);
-            if distance < 1e-2 {
+            let distance = sdf.eval(ray.origin);
+            
+            if distance < lastDistance && distance < 1e-2 {
                 ray.advance(-1e-1);
                 return Some(RayHit {
+                    distance: totalDistance,
                     position: ray.origin,
                 });
             }
-            let delta = distance - lastDistance;
-            if delta > 0.0 && iteration > 25 {
+            if distance > lastDistance && iteration > 25 {
                 break;
             }
+            
             ray.advance(distance);
+            totalDistance += distance;
             lastDistance = distance;
         }
         None
+    }
+}
+
+pub struct Model {
+	color: Rgb<u8>,
+	sdf: Box<dyn DistanceFn>,
+}
+
+impl Model {
+    pub fn new<Func: 'static + DistanceFn>(color: Rgb<u8>, sdf: Func) -> Self {
+        Self {
+            color,
+            sdf: Box::new(sdf),
+        }
     }
 }
