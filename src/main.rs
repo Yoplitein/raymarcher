@@ -108,6 +108,7 @@ impl Camera {
 struct RayHit {
     distance: f32,
     position: Vec3,
+    normal: Vec3,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -136,10 +137,12 @@ impl Ray {
             let distance = sdf.eval(ray.origin);
             
             if distance < lastDistance && distance < 1e-2 {
-                ray.advance(-1e-1);
+                ray.advance(-1e-1); // FIXME: shadow ray hack
+                let normal = sdf.eval_normal(ray.origin);
                 return Some(RayHit {
                     distance: totalDistance,
                     position: ray.origin,
+                    normal,
                 });
             }
             if distance > lastDistance && iteration > 25 {

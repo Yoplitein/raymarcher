@@ -1,8 +1,18 @@
-use glam::{Affine3A, Vec3};
+use glam::{vec3, Affine3A, Vec3};
 use image::Rgb;
 
 pub trait DistanceFn: Send + Sync {
 	fn eval(&self, point: Vec3) -> f32;
+	
+	fn eval_normal(&self, point: Vec3) -> Vec3 {
+		let epsilon = 1e-2;
+		let v = Vec3::ZERO;
+		vec3(
+			self.eval(point + v.with_x(epsilon)) - self.eval(point - v.with_x(epsilon)),
+			self.eval(point + v.with_y(epsilon)) - self.eval(point - v.with_y(epsilon)),
+			self.eval(point + v.with_z(epsilon)) - self.eval(point - v.with_z(epsilon)),
+		).normalize()
+	}
 }
 
 impl<Func: Send + Sync + Fn(Vec3) -> f32> DistanceFn for Func {
