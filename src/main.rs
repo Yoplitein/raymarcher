@@ -116,9 +116,9 @@ fn main() -> AResult<()> {
             } else {
                 let shadow = normal.dot(lightDirection);
                 if shadow < 0.0 {
+                    let shadow = (1.0 - (shadow * 4.0).abs()).clamp(0.0, 1.0);
                     color.apply(|v|
-                        // ((v as f32 / 255.0) * shadow * 255.0) as u8
-                        v / 2
+                        ((v as f32 / 255.0) * shadow * 255.0) as u8
                     );
                 }
                 *pixel = color;
