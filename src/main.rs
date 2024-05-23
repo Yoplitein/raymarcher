@@ -6,6 +6,7 @@ use glam::{vec2, vec3, Vec2, Vec3, Vec3Swizzles};
 use image::{Rgb, RgbImage};
 use rand::{thread_rng, Rng};
 use anyhow::Result as AResult;
+use rayon::iter::ParallelIterator;
 use sdf::{DistanceFn, DistanceFnCombinators};
 
 fn main() -> AResult<()> {
@@ -44,7 +45,7 @@ fn main() -> AResult<()> {
         Vec3::ZERO,
         width as f32 / height as f32
     );
-    for (x, y, pixel) in img.enumerate_pixels_mut() {
+    img.par_enumerate_pixels_mut().for_each(|(x, y, pixel)| {
         let dx = (x as f32 / (width - 1) as f32) - 0.5;
         let dy = (y as f32 / (height - 1) as f32) - 0.5;
         let ray = camera.get_ray(vec2(dx, dy));
@@ -65,7 +66,7 @@ fn main() -> AResult<()> {
             let skyboxColor = (((ray.direction + 1.0) / 2.0) * 255.0).as_uvec3();
             *pixel = Rgb([skyboxColor.x as _, skyboxColor.y as _, skyboxColor.z as _]);
         }
-    }
+    });
     
     img.save("out.png")?;
     Ok(())

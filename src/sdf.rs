@@ -1,11 +1,11 @@
 use glam::{Affine3A, Vec3};
 use image::Rgb;
 
-pub trait DistanceFn {
+pub trait DistanceFn: Send + Sync {
 	fn eval(&self, point: Vec3) -> f32;
 }
 
-impl<Func: Fn(Vec3) -> f32> DistanceFn for Func {
+impl<Func: Send + Sync + Fn(Vec3) -> f32> DistanceFn for Func {
 	fn eval(&self, point: Vec3) -> f32 {
 		self(point)
 	}
