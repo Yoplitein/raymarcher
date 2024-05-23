@@ -53,7 +53,7 @@ fn main() -> AResult<()> {
         for model in &models {
             if let Some(hit) = ray.hit(model.sdf.as_ref()) {
                 match nearest {
-                    Some((RayHit { distance, .. }, _)) if distance > hit.distance => {}
+                    Some((RayHit { distance, .. }, _)) if distance < hit.distance => {}
                     _ => nearest = Some((hit, model.color)),
                 }
             }
