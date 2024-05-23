@@ -2,14 +2,47 @@
 
 mod sdf;
 
+use clap::{builder::ValueParserFactory, Parser};
 use glam::{vec2, vec3, Vec2, Vec3, Vec3Swizzles};
 use image::{Rgb, RgbImage};
 use rand::{thread_rng, Rng};
-use anyhow::Result as AResult;
+use anyhow::{anyhow, Result as AResult};
 use rayon::iter::ParallelIterator;
 use sdf::{DistanceFn, DistanceFnCombinators};
 
+#[derive(Debug, Parser)]
+struct Args {
+    cameraPos: String,
+    
+    #[arg(default_value_t = String::from("0,0,0"))]
+    cameraTarget: String,
+}
+
 fn main() -> AResult<()> {
+    let mut args = Args::parse();
+    let cameraPos: Vec3 = {
+        let elems = args.cameraPos
+            .split(",")
+            .map(|v| v.parse::<f32>())
+            .map(|v| v.map_err(|e| anyhow!("{e:?}")))
+            .collect::<AResult<Vec<_>>>()?;
+        let elems: [f32; 3] = elems
+            .try_into()
+            .map_err(|_| anyhow!("not exactly three elements"))?;
+        Vec3::from(elems)
+    };
+    let cameraTarget: Vec3 = {
+        let elems = args.cameraTarget
+            .split(",")
+            .map(|v| v.parse::<f32>())
+            .map(|v| v.map_err(|e| anyhow!("{e:?}")))
+            .collect::<AResult<Vec<_>>>()?;
+        let elems: [f32; 3] = elems
+            .try_into()
+            .map_err(|_| anyhow!("not exactly three elements"))?;
+        Vec3::from(elems)
+    };
+    
     let mut img = RgbImage::new(640, 360);
     let (width, height) = img.dimensions();
     
@@ -38,11 +71,13 @@ fn main() -> AResult<()> {
             Model::new(Rgb([0, 0, 255]), bz),
         ]
     };
-    let lightDirection = Vec3::NEG_ONE.normalize();
+    let lightDirection = Vec3::ONE.normalize();
     
     let camera = Camera::from_points(
-        vec3(5.0, 2.5, 5.0),
-        Vec3::ZERO,
+        // vec3(5.0, 2.5, 5.0),
+        // Vec3::ZERO,
+        cameraPos,
+        cameraTarget,
         width as f32 / height as f32
     );
     img.par_enumerate_pixels_mut().for_each(|(x, y, pixel)| {
