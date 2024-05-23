@@ -4,7 +4,7 @@ mod sdf;
 
 use clap::{builder::ValueParserFactory, Parser};
 use glam::{vec2, vec3, Vec2, Vec3, Vec3Swizzles};
-use image::{Rgb, RgbImage};
+use image::{Pixel, Rgb, RgbImage};
 use rand::{thread_rng, Rng};
 use anyhow::{anyhow, Result as AResult};
 use rayon::iter::ParallelIterator;
@@ -95,8 +95,18 @@ fn main() -> AResult<()> {
             }
         }
         
-        if let Some((_, color)) = nearest {
-            *pixel = color;       
+        if let Some((RayHit { normal, .. }, mut color)) = nearest {
+            let shadow = normal.dot(lightDirection);
+            if shadow < 0.0 {
+                color.apply(|v|
+                    // ((v as f32 / 255.0) * shadow * 255.0) as u8
+                    v / 2
+                );
+            }
+            *pixel = color;
+            // let color = (normal + 1.0) / 2.0;
+            // let color = (color * 255.0).to_array().map(|v| v as u8);
+            // *pixel = Rgb(color);
         } else {
             let skyboxColor = (((ray.direction + 1.0) / 2.0) * 255.0).as_uvec3();
             *pixel = Rgb([skyboxColor.x as _, skyboxColor.y as _, skyboxColor.z as _]);
