@@ -16,6 +16,12 @@ struct Args {
     
     #[arg(default_value_t = String::from("0,0,0"))]
     cameraTarget: String,
+    
+    #[arg(long)]
+    height: f32,
+    
+    #[arg(short, long, default_value_t = false)]
+    normals: bool,
 }
 
 fn main() -> AResult<()> {
@@ -61,7 +67,7 @@ fn main() -> AResult<()> {
     };
     let x: &dyn DistanceFn;
     let models = {
-        let bx = sdf::sd_box(vec3(2.0, 0.5, 0.5)).translate(Vec3::X);
+        /* let bx = sdf::sd_box(vec3(2.0, 0.5, 0.5)).translate(Vec3::X);
         let by = sdf::sd_box(vec3(0.5, 2.0, 0.5)).translate(Vec3::Y);
         let bz = sdf::sd_box(vec3(0.5, 0.5, 2.0)).translate(Vec3::Z);
         
@@ -69,6 +75,13 @@ fn main() -> AResult<()> {
             Model::new(Rgb([255, 0, 0]), bx),
             Model::new(Rgb([0, 255, 0]), by),
             Model::new(Rgb([0, 0, 255]), bz),
+        ] */
+        
+        let cube = sdf::sd_box(Vec3::ONE);
+        let sphere = sdf::sd_sphere(1.0).translate(Vec3::ZERO.with_y(args.height));
+        let melty = cube.smooth_union(1.0, sphere);
+        [
+            Model::new(Rgb([225, 225, 255]), melty)
         ]
     };
     let lightDirection = Vec3::ONE.normalize();
@@ -96,17 +109,20 @@ fn main() -> AResult<()> {
         }
         
         if let Some((RayHit { normal, .. }, mut color)) = nearest {
-            let shadow = normal.dot(lightDirection);
-            if shadow < 0.0 {
-                color.apply(|v|
-                    // ((v as f32 / 255.0) * shadow * 255.0) as u8
-                    v / 2
-                );
+            if args.normals {
+                let color = (normal + 1.0) / 2.0;
+                let color = (color * 255.0).to_array().map(|v| v as u8);
+                *pixel = Rgb(color);
+            } else {
+                let shadow = normal.dot(lightDirection);
+                if shadow < 0.0 {
+                    color.apply(|v|
+                        // ((v as f32 / 255.0) * shadow * 255.0) as u8
+                        v / 2
+                    );
+                }
+                *pixel = color;
             }
-            *pixel = color;
-            // let color = (normal + 1.0) / 2.0;
-            // let color = (color * 255.0).to_array().map(|v| v as u8);
-            // *pixel = Rgb(color);
         } else {
             let skyboxColor = (((ray.direction + 1.0) / 2.0) * 255.0).as_uvec3();
             *pixel = Rgb([skyboxColor.x as _, skyboxColor.y as _, skyboxColor.z as _]);

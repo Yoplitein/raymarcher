@@ -46,6 +46,15 @@ pub trait DistanceFnCombinators: Sized + DistanceFn {
 	fn difference(self, mut other: impl DistanceFn) -> impl DistanceFn {
 		move |point: Vec3| (-self.eval(point)).max(other.eval(point))
 	}
+	
+	fn smooth_union(self, factor: f32, mut other: impl DistanceFn) -> impl DistanceFn {
+		move |point: Vec3| {
+			let d1 = self.eval(point);
+			let d2 = other.eval(point);
+			let h = (0.5 + 0.5 * (d2 - d1) / factor).clamp(0.0, 1.0);
+			lerp(d2, d1, h) - factor * h * (1.0 - h)
+		}
+	}
 }
 
 impl<T: DistanceFn> DistanceFnCombinators for T {
@@ -63,4 +72,8 @@ pub fn sd_box(size: Vec3) -> impl DistanceFn {
 		v.x.max(v.y.max(v.z)).min(0.0)
 		// return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
 	}
+}
+
+fn lerp(from: f32, to: f32, t: f32) -> f32 {
+	(1.0 - t) * from + t * to
 }
