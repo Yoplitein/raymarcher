@@ -93,40 +93,60 @@ fn main() -> AResult<()> {
         cameraTarget,
         width as f32 / height as f32
     );
+    let subpixel = vec2(
+        1.0 / (width - 1) as f32,
+        1.0 / (height - 1) as f32,
+    ) / 4.0;
+    let sampleSteps = (-1 ..= 1).map(|v| v as f32);
+    let numSamples = sampleSteps.clone().count().pow(2);
     img.par_enumerate_pixels_mut().for_each(|(x, y, pixel)| {
-        let dx = (x as f32 / (width - 1) as f32) - 0.5;
-        let dy = (y as f32 / (height - 1) as f32) - 0.5;
-        let ray = camera.get_ray(vec2(dx, dy));
-        
-        let mut nearest = None;
-        for model in &models {
-            if let Some(hit) = ray.hit(model.sdf.as_ref()) {
-                match nearest {
-                    Some((RayHit { distance, .. }, _)) if distance < hit.distance => {}
-                    _ => nearest = Some((hit, model.color)),
+        let mut samples = vec![Rgb([0, 0, 0]); numSamples];
+        let mut sampleIndex = 0;
+        for sampleY in sampleSteps.clone().map(|v| v * subpixel.y) {
+            let uvY = (y as f32 / (height - 1) as f32) - 0.5 + sampleY;
+            for sampleX in sampleSteps.clone().map(|v| v * subpixel.x) {
+                let uvX = (x as f32 / (width - 1) as f32) - 0.5 + sampleX;
+                let ray = camera.get_ray(vec2(uvX, uvY));
+                
+                let mut nearest = None;
+                for model in &models {
+                    if let Some(hit) = ray.hit(model.sdf.as_ref()) {
+                        match nearest {
+                            Some((RayHit { distance, .. }, _)) if distance < hit.distance => {}
+                            _ => nearest = Some((hit, model.color)),
+                        }
+                    }
                 }
+                
+                if let Some((RayHit { normal, .. }, mut color)) = nearest {
+                    if args.normals {
+                        let color = (normal + 1.0) / 2.0;
+                        let color = (color * 255.0).to_array().map(|v| v as u8);
+                        samples[sampleIndex] = Rgb(color);
+                    } else {
+                        let shadow = normal.dot(lightDirection);
+                        if shadow < 0.0 {
+                            let shadow = (1.0 - (shadow * 4.0).abs()).clamp(0.0, 1.0);
+                            color.apply(|v|
+                                ((v as f32 / 255.0) * shadow * 255.0) as u8
+                            );
+                        }
+                        samples[sampleIndex] = color;
+                    }
+                } else {
+                    let skyboxColor = (((ray.direction + 1.0) / 2.0) * 255.0).as_uvec3();
+                    let color = skyboxColor.to_array().map(|v| v as u8);
+                    samples[sampleIndex] = Rgb(color);
+                }
+                sampleIndex += 1;
             }
         }
-        
-        if let Some((RayHit { normal, .. }, mut color)) = nearest {
-            if args.normals {
-                let color = (normal + 1.0) / 2.0;
-                let color = (color * 255.0).to_array().map(|v| v as u8);
-                *pixel = Rgb(color);
-            } else {
-                let shadow = normal.dot(lightDirection);
-                if shadow < 0.0 {
-                    let shadow = (1.0 - (shadow * 4.0).abs()).clamp(0.0, 1.0);
-                    color.apply(|v|
-                        ((v as f32 / 255.0) * shadow * 255.0) as u8
-                    );
-                }
-                *pixel = color;
-            }
-        } else {
-            let skyboxColor = (((ray.direction + 1.0) / 2.0) * 255.0).as_uvec3();
-            *pixel = Rgb([skyboxColor.x as _, skyboxColor.y as _, skyboxColor.z as _]);
-        }
+        let sample = samples
+            .into_iter()
+            .map(|v| Vec3::from(v.0.map(|v| v as f32)))
+            .fold(Vec3::ZERO, |l, r| l + r) / numSamples as f32;
+        let sample = sample.to_array().map(|v| v as u8);
+        *pixel = Rgb(sample);
     });
     
     img.save("out.png")?;
