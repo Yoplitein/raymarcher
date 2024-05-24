@@ -108,15 +108,7 @@ fn main() -> AResult<()> {
                 let uvX = (x as f32 / (width - 1) as f32) - 0.5 + sampleX;
                 let ray = camera.get_ray(vec2(uvX, uvY));
                 
-                let mut nearest = None;
-                for model in &models {
-                    if let Some(hit) = ray.hit(model.sdf.as_ref()) {
-                        match nearest {
-                            Some((RayHit { distance, .. }, _)) if distance < hit.distance => {}
-                            _ => nearest = Some((hit, model.color)),
-                        }
-                    }
-                }
+                let nearest = Model::nearest_hit(&models, ray);
                 
                 if let Some((RayHit { normal, .. }, mut color)) = nearest {
                     if args.normals {
@@ -154,12 +146,12 @@ fn main() -> AResult<()> {
 }
 
 #[derive(Clone, Debug)]
-struct Camera {
-    origin: Vec3,
-    forward: Vec3,
-    right: Vec3,
-    up: Vec3,
-    aspect: f32,
+pub struct Camera {
+    pub origin: Vec3,
+    pub forward: Vec3,
+    pub right: Vec3,
+    pub up: Vec3,
+    pub aspect: f32,
 }
 
 impl Camera {
@@ -186,16 +178,16 @@ impl Camera {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct RayHit {
-    distance: f32,
-    position: Vec3,
-    normal: Vec3,
+pub struct RayHit {
+    pub distance: f32,
+    pub position: Vec3,
+    pub normal: Vec3,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Ray {
-    origin: Vec3,
-    direction: Vec3,
+pub struct Ray {
+    pub origin: Vec3,
+    pub direction: Vec3,
 }
 
 impl Ray {
@@ -249,5 +241,18 @@ impl Model {
             color,
             sdf: Box::new(sdf),
         }
+    }
+    
+    pub fn nearest_hit(models: &[Self], ray: Ray) -> Option<(RayHit, Rgb<u8>)> {
+        let mut nearest = None;
+        for model in models {
+            if let Some(hit) = ray.hit(model.sdf.as_ref()) {
+                match nearest {
+                    Some((RayHit { distance, .. }, _)) if distance < hit.distance => {}
+                    _ => nearest = Some((hit, model.color)),
+                }
+            }
+        }
+        nearest
     }
 }
