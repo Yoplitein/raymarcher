@@ -215,16 +215,15 @@ impl Ray {
     
     pub fn hit(&self, sdf: &dyn DistanceFn) -> Result<RayHit, f32> {
         let mut ray = *self;
-        let mut lastDistance = f32::INFINITY;
         let mut totalDistance = 0.0;
         let mut occlusion = 1.0f32;
-        for iteration in 0 .. 100 {
+        for iteration in 0 .. 50 {
             let distance = sdf.eval(ray.origin);
             occlusion = occlusion.min(8.0 * distance / totalDistance);
             totalDistance += distance;
             
-            if distance < lastDistance && distance < 1e-2 {
-                ray.advance(-1e-1); // FIXME: shadow ray hack
+            if distance < 1e-2 {
+                ray.advance(-1e-2);
                 let normal = sdf.eval_normal(ray.origin);
                 return Ok(RayHit {
                     distance: totalDistance,
@@ -232,12 +231,8 @@ impl Ray {
                     normal,
                 });
             }
-            if distance > lastDistance && iteration > 25 {
-                break;
-            }
             
             ray.advance(distance);
-            lastDistance = distance;
         }
         Err(occlusion)
     }
