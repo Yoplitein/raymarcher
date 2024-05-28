@@ -80,8 +80,17 @@ fn main() -> AResult<()> {
         let cube = sdf::sd_box(Vec3::ONE);
         let sphere = sdf::sd_sphere(1.0).translate(Vec3::ZERO.with_y(args.height));
         let melty = cube.smooth_union(1.0, sphere);
+        
+        let floor = |pt: Vec3| pt.y;
+        let floor = floor.translate(Vec3::NEG_Y);
+        
+        let frame = sdf::sd_box(vec3(2.0, 1.0, 0.25));
+        let doorway = sdf::sd_sphere(1.0).translate(vec3(0.0, -0.25, 0.0));
+        let arch = doorway.difference(frame).translate(vec3(0.0, 0.0, -5.0));
         [
-            Model::new(Rgb([225, 225, 255]), melty)
+            Model::new(Rgb([225, 225, 255]), melty),
+            Model::new(Rgb([0xff, 0x7f, 0x00]), floor),
+            Model::new(Rgb([0x00, 0x7f, 0xff]), arch),
         ]
     };
     let lightDirection = Vec3::ONE.normalize();
@@ -110,19 +119,21 @@ fn main() -> AResult<()> {
                 
                 let nearest = Model::nearest_hit(&models, ray);
                 
-                if let Some((RayHit { normal, .. }, mut color)) = nearest {
+                if let Ok((RayHit { position: hitPosition, normal: hitNormal, .. }, mut color)) = nearest {
                     if args.normals {
-                        let color = (normal + 1.0) / 2.0;
+                        let color = (hitNormal + 1.0) / 2.0;
                         let color = (color * 255.0).to_array().map(|v| v as u8);
                         samples[sampleIndex] = Rgb(color);
                     } else {
-                        let shadow = normal.dot(lightDirection);
-                        if shadow < 0.0 {
-                            let shadow = (1.0 - (shadow * 4.0).abs()).clamp(0.0, 1.0);
-                            color.apply(|v|
-                                ((v as f32 / 255.0) * shadow * 255.0) as u8
-                            );
-                        }
+                        let shadowRay = Ray {
+                            origin: hitPosition,
+                            direction: lightDirection,
+                        };
+                        let mul = match Model::nearest_hit(&models, shadowRay) {
+                            Ok(_) => 0.5,
+                            Err(e) => e / 2.0 + 0.5,
+                        };
+                        color.apply(|v| (v as f32 * mul) as u8);
                         samples[sampleIndex] = color;
                     }
                 } else {
@@ -202,17 +213,20 @@ impl Ray {
         self.origin += self.direction * distance    
     }
     
-    pub fn hit(&self, sdf: &dyn DistanceFn) -> Option<RayHit> {
+    pub fn hit(&self, sdf: &dyn DistanceFn) -> Result<RayHit, f32> {
         let mut ray = *self;
         let mut lastDistance = f32::INFINITY;
         let mut totalDistance = 0.0;
+        let mut occlusion = 1.0f32;
         for iteration in 0 .. 100 {
             let distance = sdf.eval(ray.origin);
+            occlusion = occlusion.min(8.0 * distance / totalDistance);
+            totalDistance += distance;
             
             if distance < lastDistance && distance < 1e-2 {
                 ray.advance(-1e-1); // FIXME: shadow ray hack
                 let normal = sdf.eval_normal(ray.origin);
-                return Some(RayHit {
+                return Ok(RayHit {
                     distance: totalDistance,
                     position: ray.origin,
                     normal,
@@ -223,10 +237,9 @@ impl Ray {
             }
             
             ray.advance(distance);
-            totalDistance += distance;
             lastDistance = distance;
         }
-        None
+        Err(occlusion)
     }
 }
 
@@ -243,16 +256,18 @@ impl Model {
         }
     }
     
-    pub fn nearest_hit(models: &[Self], ray: Ray) -> Option<(RayHit, Rgb<u8>)> {
+    pub fn nearest_hit(models: &[Self], ray: Ray) -> Result<(RayHit, Rgb<u8>), f32> {
         let mut nearest = None;
+        let mut minOcclusion = f32::INFINITY;
         for model in models {
-            if let Some(hit) = ray.hit(model.sdf.as_ref()) {
-                match nearest {
+            match ray.hit(model.sdf.as_ref()) {
+                Ok(hit) => match nearest {
                     Some((RayHit { distance, .. }, _)) if distance < hit.distance => {}
                     _ => nearest = Some((hit, model.color)),
-                }
+                },
+                Err(occlusion) => minOcclusion = minOcclusion.min(occlusion),
             }
         }
-        nearest
+        nearest.ok_or(minOcclusion)
     }
 }
