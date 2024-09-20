@@ -3,8 +3,8 @@
 mod sdf;
 
 use clap::{builder::ValueParserFactory, Parser};
-use glam::{vec2, vec3, Vec2, Vec3, Vec3Swizzles};
-use image::{Pixel, Rgb, RgbImage};
+use glam::{vec2, vec3, Vec2, Vec3, Vec3Swizzles, Vec4};
+use image::{Pixel, Rgb, RgbImage, Rgba, RgbaImage};
 use rand::{thread_rng, Rng};
 use anyhow::{anyhow, Result as AResult};
 use rayon::iter::ParallelIterator;
@@ -22,6 +22,9 @@ struct Args {
     
     #[arg(short, long, default_value_t = false)]
     normals: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    transparent: bool,
 }
 
 fn main() -> AResult<()> {
@@ -106,10 +109,14 @@ fn main() -> AResult<()> {
         1.0 / (width - 1) as f32,
         1.0 / (height - 1) as f32,
     ) / 4.0;
-    let sampleSteps = (-1 ..= 1).map(|v| v as f32);
+    let sampleSteps = if args.normals {
+        (0 ..= 0)
+    } else {
+        (-1 ..= 1)
+    }.map(|v| v as f32);
     let numSamples = sampleSteps.clone().count().pow(2);
     img.par_enumerate_pixels_mut().for_each(|(x, y, pixel)| {
-        let mut samples = vec![Rgb([0, 0, 0]); numSamples];
+        let mut samples = vec![Rgba([0, 0, 0, 0]); numSamples];
         let mut sampleIndex = 0;
         for sampleY in sampleSteps.clone().map(|v| v * subpixel.y) {
             let uvY = (y as f32 / (height - 1) as f32) - 0.5 + sampleY;
@@ -121,9 +128,19 @@ fn main() -> AResult<()> {
                 
                 if let Ok((RayHit { position: hitPosition, normal: hitNormal, .. }, mut color)) = nearest {
                     if args.normals {
+                        let tforward = (camera.origin - hitPosition).normalize();
+                        let tright = Vec3::Y.cross(tforward);
+                        let tup = tright.cross(tforward);
+                        let hitNormal = {
+                            let y = hitNormal.dot(tforward);
+                            let x = hitNormal.dot(tright);
+                            let z = hitNormal.dot(tup);
+                            1.0 - vec3(x, y, z)
+                        };
                         let color = (hitNormal + 1.0) / 2.0;
+                        let color = Vec4::from((color, 1.0));
                         let color = (color * 255.0).to_array().map(|v| v as u8);
-                        samples[sampleIndex] = Rgb(color);
+                        samples[sampleIndex] = Rgba(color);
                     } else {
                         let shadowRay = Ray {
                             origin: hitPosition,
@@ -134,22 +151,25 @@ fn main() -> AResult<()> {
                             Err(e) => e / 2.0 + 0.5,
                         };
                         color.apply(|v| (v as f32 * mul) as u8);
-                        samples[sampleIndex] = color;
+                        samples[sampleIndex] = color.to_rgba();
                     }
                 } else {
-                    let skyboxColor = (((ray.direction + 1.0) / 2.0) * 255.0).as_uvec3();
-                    let color = skyboxColor.to_array().map(|v| v as u8);
-                    samples[sampleIndex] = Rgb(color);
+                    if !args.transparent {
+                        let skyboxColor = (((ray.direction + 1.0) / 2.0) * 255.0);
+                        let skyboxColor = Vec4::from((skyboxColor, 255.0)).as_uvec4();
+                        let color = skyboxColor.to_array().map(|v| v as u8);
+                        samples[sampleIndex] = Rgba(color);
+                    }
                 }
                 sampleIndex += 1;
             }
         }
         let sample = samples
             .into_iter()
-            .map(|v| Vec3::from(v.0.map(|v| v as f32)))
-            .fold(Vec3::ZERO, |l, r| l + r) / numSamples as f32;
-        let sample = sample.to_array().map(|v| v as u8);
-        *pixel = Rgb(sample);
+            .map(|v| Vec4::from(v.0.map(|v| v as f32)))
+            .fold(Vec4::ZERO, |l, r| l + r) / numSamples as f32;
+        let mut sample = sample.to_array().map(|v| v as u8);
+        *pixel = Rgba(sample);
     });
     
     img.save("out.png")?;
