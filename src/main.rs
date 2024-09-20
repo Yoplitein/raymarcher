@@ -143,7 +143,7 @@ fn main() -> AResult<()> {
                         samples[sampleIndex] = Rgba(color);
                     } else {
                         let shadowRay = Ray {
-                            origin: hitPosition,
+                            origin: hitPosition + hitNormal * 1e-5,
                             direction: lightDirection,
                         };
                         let mul = match Model::nearest_hit(&models, shadowRay) {
@@ -237,13 +237,12 @@ impl Ray {
         let mut ray = *self;
         let mut totalDistance = 0.0;
         let mut occlusion = 1.0f32;
-        for iteration in 0 .. 50 {
+        for iteration in 0 .. 100 {
             let distance = sdf.eval(ray.origin);
             occlusion = occlusion.min(8.0 * distance / totalDistance);
             totalDistance += distance;
-            
-            if distance < 1e-2 {
-                ray.advance(-1e-2);
+
+            if distance < 1e-5 {
                 let normal = sdf.eval_normal(ray.origin);
                 return Ok(RayHit {
                     distance: totalDistance,
@@ -251,7 +250,10 @@ impl Ray {
                     normal,
                 });
             }
-            
+            if distance > 1e10 {
+                break;
+            }
+
             ray.advance(distance);
         }
         Err(occlusion)
